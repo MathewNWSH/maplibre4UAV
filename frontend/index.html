@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>maplibre4UAV - VRT Tile Viewer</title>
+    <script src="https://unpkg.com/maplibre-gl@4.1.0/dist/maplibre-gl.js"></script>
+    <link href="https://unpkg.com/maplibre-gl@4.1.0/dist/maplibre-gl.css" rel="stylesheet" />
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        #map {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            left: 0;
+            right: 0;
+        }
+        .sidebar {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            z-index: 1000;
+            max-width: 300px;
+            max-height: calc(100vh - 40px);
+            overflow-y: auto;
+        }
+        .sidebar h2 {
+            margin-bottom: 10px;
+            font-size: 16px;
+            color: #333;
+        }
+        .dataset-list {
+            list-style: none;
+        }
+        .dataset-item {
+            padding: 8px 12px;
+            margin: 4px 0;
+            background: #f5f5f5;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.2s;
+            font-size: 13px;
+        }
+        .dataset-item:hover {
+            background: #e0e0e0;
+        }
+        .dataset-item.active {
+            background: #2196F3;
+            color: white;
+        }
+        .controls {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #ddd;
+        }
+        .control-group {
+            margin-bottom: 10px;
+        }
+        .control-group label {
+            display: block;
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 4px;
+        }
+        .control-group input[type="range"] {
+            width: 100%;
+        }
+        .info-panel {
+            position: absolute;
+            bottom: 30px;
+            left: 10px;
+            background: white;
+            padding: 10px 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            z-index: 1000;
+            font-size: 12px;
+        }
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 20px 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            z-index: 2000;
+        }
+        .hidden {
+            display: none;
+        }
+        .btn-all {
+            width: 100%;
+            padding: 8px;
+            margin-top: 10px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .btn-all:hover {
+            background: #45a049;
+        }
+        .btn-clear {
+            background: #f44336;
+        }
+        .btn-clear:hover {
+            background: #da190b;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+
+    <div class="sidebar">
+        <h2>UAV Datasets</h2>
+        <ul id="dataset-list" class="dataset-list">
+            <li class="dataset-item">Loading...</li>
+        </ul>
+        <button id="btn-show-all" class="btn-all">Show All</button>
+        <button id="btn-clear-all" class="btn-all btn-clear">Clear All</button>
+
+        <div class="controls">
+            <div class="control-group">
+                <label>Opacity: <span id="opacity-value">100</span>%</label>
+                <input type="range" id="opacity" min="0" max="100" value="100">
+            </div>
+        </div>
+    </div>
+
+    <div class="info-panel">
+        <div id="coords">Hover over map for coordinates</div>
+    </div>
+
+    <div id="loading" class="loading hidden">Loading datasets...</div>
+
+    <script>
+        const TILE_SERVER = window.location.origin.replace(':8080', ':8000');
+
+        let map;
+        let datasets = [];
+        let activeLayers = new Set();
+
+        async function init() {
+            map = new maplibregl.Map({
+                container: 'map',
+                style: {
+                    version: 8,
+                    sources: {
+                        'osm': {
+                            type: 'raster',
+                            tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+                            tileSize: 256,
+                            attribution: '&copy; OpenStreetMap contributors'
+                        }
+                    },
+                    layers: [{
+                        id: 'osm-layer',
+                        type: 'raster',
+                        source: 'osm',
+                        minzoom: 0,
+                        maxzoom: 19
+                    }]
+                },
+                center: [0, 0],
+                zoom: 2
+            });
+
+            map.addControl(new maplibregl.NavigationControl());
+            map.addControl(new maplibregl.ScaleControl());
+
+            map.on('mousemove', (e) => {
+                document.getElementById('coords').textContent =
+                    `Lat: ${e.lngLat.lat.toFixed(6)}, Lng: ${e.lngLat.lng.toFixed(6)}, Zoom: ${map.getZoom().toFixed(2)}`;
+            });
+
+            await loadDatasets();
+
+            document.getElementById('opacity').addEventListener('input', (e) => {
+                const opacity = e.target.value / 100;
+                document.getElementById('opacity-value').textContent = e.target.value;
+                activeLayers.forEach(layerId => {
+                    if (map.getLayer(layerId)) {
+                        map.setPaintProperty(layerId, 'raster-opacity', opacity);
+                    }
+                });
+            });
+
+            document.getElementById('btn-show-all').addEventListener('click', showAllDatasets);
+            document.getElementById('btn-clear-all').addEventListener('click', clearAllDatasets);
+        }
+
+        async function loadDatasets() {
+            const loading = document.getElementById('loading');
+            loading.classList.remove('hidden');
+
+            try {
+                const response = await fetch(`${TILE_SERVER}/datasets`);
+                const data = await response.json();
+                datasets = data.datasets;
+
+                const listEl = document.getElementById('dataset-list');
+                listEl.innerHTML = '';
+
+                if (datasets.length === 0) {
+                    listEl.innerHTML = '<li class="dataset-item">No datasets found</li>';
+                    return;
+                }
+
+                datasets.forEach(dataset => {
+                    const li = document.createElement('li');
+                    li.className = 'dataset-item';
+                    li.textContent = dataset.name;
+                    li.dataset.name = dataset.name;
+                    li.onclick = () => toggleDataset(dataset.name, li);
+                    listEl.appendChild(li);
+                });
+
+                // Load first dataset and fit bounds
+                if (datasets.length > 0) {
+                    const firstDataset = datasets[0].name;
+                    const firstItem = listEl.querySelector('.dataset-item');
+                    await toggleDataset(firstDataset, firstItem);
+
+                    const boundsResponse = await fetch(`${TILE_SERVER}/datasets/${firstDataset}/bounds`);
+                    const boundsData = await boundsResponse.json();
+                    map.fitBounds(boundsData.bounds, { padding: 50 });
+                }
+
+            } catch (error) {
+                console.error('Failed to load datasets:', error);
+                document.getElementById('dataset-list').innerHTML =
+                    '<li class="dataset-item">Error loading datasets</li>';
+            } finally {
+                loading.classList.add('hidden');
+            }
+        }
+
+        async function toggleDataset(datasetName, element) {
+            const sourceId = `vrt-${datasetName}`;
+            const layerId = `vrt-layer-${datasetName}`;
+
+            if (activeLayers.has(layerId)) {
+                map.removeLayer(layerId);
+                map.removeSource(sourceId);
+                activeLayers.delete(layerId);
+                element.classList.remove('active');
+            } else {
+                try {
+                    const tilejsonResponse = await fetch(`${TILE_SERVER}/datasets/${datasetName}/tilejson.json`);
+                    const tilejson = await tilejsonResponse.json();
+                    const tiles = tilejson.tiles.map(t => `${TILE_SERVER}${t}`);
+
+                    map.addSource(sourceId, {
+                        type: 'raster',
+                        tiles: tiles,
+                        bounds: tilejson.bounds,
+                        minzoom: tilejson.minzoom || 0,
+                        maxzoom: tilejson.maxzoom || 22,
+                        tileSize: 256
+                    });
+
+                    const opacity = document.getElementById('opacity').value / 100;
+
+                    map.addLayer({
+                        id: layerId,
+                        type: 'raster',
+                        source: sourceId,
+                        paint: { 'raster-opacity': opacity }
+                    });
+
+                    activeLayers.add(layerId);
+                    element.classList.add('active');
+
+                } catch (error) {
+                    console.error(`Failed to load dataset ${datasetName}:`, error);
+                }
+            }
+        }
+
+        async function showAllDatasets() {
+            const items = document.querySelectorAll('.dataset-item');
+            for (const item of items) {
+                const name = item.dataset.name;
+                if (name && !activeLayers.has(`vrt-layer-${name}`)) {
+                    await toggleDataset(name, item);
+                }
+            }
+        }
+
+        function clearAllDatasets() {
+            const items = document.querySelectorAll('.dataset-item');
+            items.forEach(item => {
+                const name = item.dataset.name;
+                if (name && activeLayers.has(`vrt-layer-${name}`)) {
+                    toggleDataset(name, item);
+                }
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>

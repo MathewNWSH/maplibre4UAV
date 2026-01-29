@@ -1,0 +1,47 @@
+services:
+  titiler:
+    build:
+      context: ./titiler
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ${DATA_DIR:-./data}:/data:ro
+      - ${SOURCE_DIR:-./data}:${SOURCE_DIR:-./data}:ro
+    environment:
+      # GDAL Performance Tuning
+      GDAL_CACHEMAX: "200"
+      GDAL_MAX_DATASET_POOL_SIZE: "200"
+      GDAL_NUM_THREADS: "ALL_CPUS"
+      GDAL_HTTP_MULTIPLEX: "YES"
+      GDAL_HTTP_MERGE_CONSECUTIVE_RANGES: "YES"
+      GDAL_HTTP_VERSION: "2"
+      GDAL_DISABLE_READDIR_ON_OPEN: "EMPTY_DIR"
+      GDAL_INGESTED_BYTES_AT_OPEN: "32768"
+      VSI_CACHE: "TRUE"
+      VSI_CACHE_SIZE: "5000000"
+      GDAL_BAND_BLOCK_CACHE: "HASHSET"
+
+      # S3 Configuration (uncomment when using S3)
+      # AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID}"
+      # AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY}"
+      # AWS_DEFAULT_REGION: "${AWS_DEFAULT_REGION:-eu-central-1}"
+      # AWS_ENDPOINT_URL: "${AWS_ENDPOINT_URL}"
+      # AWS_VIRTUAL_HOSTING: "FALSE"
+      # CPL_VSIL_CURL_CACHE_SIZE: "200000000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  frontend:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+    depends_on:
+      - titiler
+    restart: unless-stopped
