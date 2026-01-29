@@ -8,7 +8,7 @@ Dynamic tile server for UAV/drone imagery using VRT files with MapLibre visualiz
 - **MapLibre GL JS** frontend for interactive map visualization
 - **GDAL optimized** Docker setup for high performance
 - **No format conversion** - serves VRT files directly
-- **S3 ready** - placeholders for cloud storage credentials
+- **S3 ready** - configuration for S3-compatible object storage
 
 ## Quick Start
 
@@ -80,14 +80,17 @@ The Docker image includes optimized GDAL settings:
 | `VSI_CACHE` | TRUE | File caching |
 | `GDAL_DISABLE_READDIR_ON_OPEN` | EMPTY_DIR | Skip dir scanning |
 
-## S3 Support (Future)
+## S3 Support
 
-Uncomment S3 variables in `docker-compose.yml`:
+Set S3 variables in `.env` and uncomment them in `docker-compose.yml`:
 
-```yaml
-AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID}"
-AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY}"
-AWS_DEFAULT_REGION: "${AWS_DEFAULT_REGION}"
+```bash
+AWS_ACCESS_KEY_ID=
+AWS_SECRET_ACCESS_KEY=
+AWS_HTTPS=YES
+AWS_VIRTUAL_HOSTING=FALSE
+GDAL_HTTP_TCP_KEEPALIVE=YES
+AWS_S3_ENDPOINT=eodata.cloudferro.com
 ```
 
 ## License
